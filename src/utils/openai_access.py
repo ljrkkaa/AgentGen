@@ -8,10 +8,13 @@ import multiprocessing
 def call_chatgpt_openai(ins, keys, model="gpt-3.5-turbo", n=1, temperature=0):
     key_index = 0
     def get_openai_completion(prompt, api_key):
-        client = OpenAI(api_key=api_key)
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.chatanywhere.tech/v1"
+        )
         response = client.chat.completions.create(
             model= model,
-            n= n,
+            n= n,                   # 一次生成多少条结果（默认 1）
             messages=[
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": prompt},
@@ -51,6 +54,16 @@ def call_chatgpt_azure(ins, model="gpt-3.5-turbo", n=1, temperature=0):
 
 
 class Generator:
+    """
+    Generator 类：大模型调用接口封装层。
+    负责根据 api_type（openai / azure / mix）选择调用方式，
+    支持单 prompt 生成和多进程并行生成。
+
+    返回结果通常为：
+        success (bool) 是否调用成功
+        gpt_response (list[str]) 模型生成的文本列表
+        tokens (dict) token 统计信息
+    """
     def __init__(self, args) -> None:
         self.api_type = args.api_type
         if self.api_type in ['mix', 'openai']:

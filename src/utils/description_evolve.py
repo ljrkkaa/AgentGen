@@ -8,15 +8,25 @@ import time
 
 
 class DescEvolve:
+    """
+    DescEvolve 类负责根据给定的上下文（context）和示例（examples），
+    构建 prompt 并调用大模型（如 GPT-4）进行环境描述或领域进化生成。
+    """
     def __init__(self, args) -> None:
         self.prompt_file = args.prompt_file
-        self.generator = Generator(args)
+        self.generator = Generator(args)  # 文本生成器对象（封装了 OpenAI 或 Azure 的接口）
         self.model = args.model
         self.args = args
 
     def _make_evol_prompt(self, context, examples):
+        """
+        构造给大模型的 prompt。
+        context: 当前任务上下文（LIMA 中的 instruction，取代[Context]）
+        examples: 示例描述文本列表（取代 seed 环境示例）
+        """
         prompt_template = open(self.prompt_file).read()
         prompt = prompt_template.replace('[Context]', context)
+        # 如果有多个示例，则依次编号拼接
         if len(examples) > 1:
             example_text = []
             for idx, example in enumerate(examples):
@@ -28,6 +38,10 @@ class DescEvolve:
         return prompt
 
     def _call_gpt(self, prompt):
+        """
+        单进程调用大模型生成结果。
+        调用 Generator.generate() 并返回生成的文本和 token 数。
+        """
         # print(prompt)
         success, gpt_response, tokens = self.generator.generate(prompt, model=self.model)
         # print(gpt_response)
@@ -40,6 +54,10 @@ class DescEvolve:
             return None, None
 
     def _call_gpt_multiprocess(self, prompt_list):
+        """
+        多进程并行调用大模型，批量生成结果。
+        prompt_list: 不同 context+example 组合的 prompt 列表
+        """
         result_list = self.generator.generate_multiprocess(prompt_list, model=self.model)
         parsed_result = []
         for success, gpt_response, tokens in result_list:
@@ -55,6 +73,9 @@ class DescEvolve:
     def close_loop_evol(self, context, examples):
         '''
         data: data is a dictionary contains "description" (mandatory), "unfilled_domain", "example_trajectory" (optional, only under "fillin" setting), 
+        1. 通过 context + examples 构造 prompt
+        2. 调用大模型生成新的描述
+        3. 返回生成内容、耗时与 token 数
         '''
         st = time.time()
         prompt = self._make_evol_prompt(context, examples)
@@ -70,6 +91,7 @@ class DescEvolve:
         data: data is a dictionary contains "description" (mandatory), "unfilled_domain", "example_trajectory" (optional, only under "fillin" setting), 
         '''
         st = time.time()
+        # 构造多个 prompt（逐一匹配 context 与 example）
         prompt_list = [self._make_evol_prompt(context, examples) for context, examples in zip(context_list, examples_list)]
         result_list = self._call_gpt_multiprocess(prompt_list)
         items = []

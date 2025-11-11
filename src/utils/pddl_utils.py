@@ -86,6 +86,17 @@ def parse_actions(pddl_domain):
         parser = PDDLDomainParser(temp_pddl, operators_as_actions=False, expect_action_preds=False)
 
     # parser._parse_domain_operators()
+    # -------------------------------------------------
+    # 遍历解析得到的 action 对象
+    # parser.operators 是一个 dict，例如：
+    # {
+    #   'walk': Operator(...),
+    #   'pickup_spanner': Operator(...),
+    # }
+    #
+    # 每个 operator.params 是参数列表，如 ['?man', '?spanner', '?loc']
+    # 所以 len(v.params) 表示动作的参数个数。
+    # -------------------------------------------------
     action_map = {}
     for k, v in parser.operators.items():
         action_map[k] = len(v.params)

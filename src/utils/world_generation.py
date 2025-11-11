@@ -1,13 +1,18 @@
 import json
 import os
 from utils.openai_access import Generator
-from utils.pddl_utils import extract_pddl, parse_actions, parse_predicates, extract_domain_name
+from utils.pddl_utils import (
+    extract_pddl,
+    parse_actions,
+    parse_predicates,
+    extract_domain_name,
+)
 from tqdm import tqdm
 import random
 import time
 
-
-correction_format = '''
+# 当前轮次修正记录的文本模板
+correction_format = """
 Round [Round]
 Incorrect PDDL:
 [PDDL]
@@ -15,32 +20,66 @@ Error Information:
 [Error]
 Corrected PDDL:
 [Corrected_PDDL]
-'''
+"""
 
-history_format = '''
+# 历史修正记录模板（不包含 Corrected_PDDL）
+history_format = """
 Round [Round]
 Incorrect PDDL: 
 [PDDL]
 Error Information:
 [Error]
-'''
+"""
+
 
 def make_correction_prompt(prompt, trace, domain, error_info):
-    # .replace('[Corrected_PDDL]', _['corrected_domain'])
-    history = [history_format.replace('[Round]', str(idx)).replace('[PDDL]', _['incorrect_domain']).replace('[Error]', _['error_info']) for idx, _ in enumerate(trace)]
-    history.append(correction_format.replace('[Round]', str(len(trace))).replace('[PDDL]', domain).replace('[Corrected_PDDL]', '').replace('[Error]', error_info))
-    prompt += '\n\n' + '\n\n'.join(history)
+    """
+    作用：
+        将历史修正记录（trace）与当前错误信息（error_info）拼接到 prompt 中，
+        形成完整的“PDDL 自动修正提示文本”，供 GPT 模型使用。
+
+    参数：
+        prompt (str): 基础提示模板（如 domain_correct_prompt）
+        trace (list): 历史修正记录列表（每项包含 error_info, incorrect_domain, corrected_domain 等）
+        domain (str): 当前错误的 PDDL 文本
+        error_info (str): 当前错误的解析报错信息
+
+    返回：
+        new_prompt (str): 拼接后的完整提示，包含所有历史与当前错误上下文。
+    """
+    # .replace('[Corrected_PDDL]', _['corrected_domain']) 
+    # Step 1️⃣ 把历史修正记录格式化为文本
+    history = [
+        history_format.replace("[Round]", str(idx))
+        .replace("[PDDL]", _["incorrect_domain"])
+        .replace("[Error]", _["error_info"])
+        for idx, _ in enumerate(trace)
+    ]
+    # Step 2️⃣ 添加当前最新的错误信息模板（含 Corrected_PDDL 占位符）
+    history.append(
+        correction_format.replace("[Round]", str(len(trace)))
+        .replace("[PDDL]", domain)
+        .replace("[Corrected_PDDL]", "")
+        .replace("[Error]", error_info)
+    )
+    # Step 3️⃣ 将所有历史内容拼接到主提示后面
+    prompt += "\n\n" + "\n\n".join(history)
     return prompt
 
 
 from pddlgym.parser import PDDLDomainParser
 import copy, traceback
+
+
 def _checker(_domain):
-    temp_path = './temp.pddl'
-    open(temp_path, 'w', encoding='utf').write(_domain)
+    temp_path = "./temp.pddl"
+    open(temp_path, "w", encoding="utf").write(_domain)
     try:
-        PDDLDomainParser(domain_fname=temp_path, operators_as_actions=True, expect_action_preds=False)
-        return True, 'Success'
+        # 调用 PDDLGym 解析器尝试加载 domain 文件
+        PDDLDomainParser(
+            domain_fname=temp_path, operators_as_actions=True, expect_action_preds=False
+        )
+        return True, "Success"
     except Exception as e:
         exception_type = type(e).__name__
         traceback_info = traceback.format_exc()
@@ -48,7 +87,7 @@ def _checker(_domain):
         return False, error_message
 
 
-domain_correct_prompt = '''
+domain_correct_prompt = """
 I would like you to serve as an expert in PDDL, assisting me in correcting erroneous PDDL code. I will provide you with the incorrect PDDL along with the error messages returned by the system. You should output your thought process firstly. You MUST enclose the COMPLETE corrected PDDL within ```pddl```.
 Here are some hints to help you debug the pddl domain file:
 1. You should start by checking if all the essential domain constructs or domain definition constructs are present. Commonly included domains comprise:
@@ -62,10 +101,16 @@ Here are some hints to help you debug the pddl domain file:
 2. You need to check the number of parameters of each actions.
 3. Having :typing in the domain indicates that it uses a hierarchy to organize objects. Therefore, it's crucial to clearly list all object types related to the planning task in a :types section.
 4. '-' should not appear in :types.
-'''
+"""
 
 
 class WorldGeneration:
+    """
+    初始化世界生成类 WorldGeneration。
+    主要负责根据任务描述生成 PDDL 领域（domain）文件，
+    并通过 LLM（如 GPT-4）进行自动修正。
+    """
+
     def __init__(self, args) -> None:
         self.prompt_file = args.prompt_file
         self.max_correction = args.max_correction
@@ -73,23 +118,32 @@ class WorldGeneration:
         self.model = args.model
 
     def _make_domain_generation_prompt(self, data):
+        """
+        构造用于生成领域定义（Domain PDDL）的 prompt。
+        将模板中的占位符 [Description] 替换为输入数据的描述文本。
+        """
         prompt_template = open(self.prompt_file).read()
-        description = data['description']
-        prompt = prompt_template.replace('[Description]', description)
+        description = data["description"]
+        prompt = prompt_template.replace("[Description]", description)
         return prompt
-
 
     def _domain_generation(self, prompt):
         # print(prompt)
-        success, gpt_response, tokens = self.generator.generate(prompt, model=self.model)
+        success, gpt_response, tokens = self.generator.generate(
+            prompt, model=self.model
+        )
         # print(gpt_response)
         gpt_response = gpt_response[0]
         print(gpt_response)
+        # 正则表达式模式匹配PDDL文件
         domain_pddl = extract_pddl(gpt_response)
-        return domain_pddl, tokens['total']
-
+        return domain_pddl, tokens["total"]
 
     def _domain_correction(self, domain, max_retry=3):
+        """
+        对生成的 PDDL domain 进行自动验证与修正。
+        若检查失败，会基于错误提示重新生成，最多尝试 max_retry 次。
+        """
         domain_name = extract_domain_name(domain)
         count = 0
         trace = []
@@ -97,43 +151,63 @@ class WorldGeneration:
         while True:
             success, error_info = _checker(domain)
             if success:
-                print(f'Env {domain_name} Passed Test')
+                print(f"Env {domain_name} Passed Test")
                 return success, domain, trace, token
             elif count == max_retry:
-                print(f'Env {domain_name} Retry Exceeded')
+                print(f"Env {domain_name} Retry Exceeded")
                 return False, None, trace, token
             else:
-                print(f'Env {domain_name}, Correct Round {count}. Error Info: {error_info}')
+                print(
+                    f"Env {domain_name}, Correct Round {count}. Error Info: {error_info}"
+                )
                 count += 1
                 # prompt = open(f'{prompt_dir}/domain_correct').read()
                 prompt = domain_correct_prompt
                 # prompt = prompt.replace('[PDDL]', domain).replace('[Error]', error_info)
+                # 构造带上下文的修正提示，包括历史信息和上一次 domain信息
                 prompt = make_correction_prompt(prompt, trace, domain, error_info)
                 # model='gpt-4-0125-preview'
                 # text = call_chatgpt(prompt, temperature=0)[0]
-                success, text, tokens = self.generator.generate(prompt, temperature=0, model=self.model)
+                success, text, tokens = self.generator.generate(
+                    prompt, temperature=0, model=self.model
+                )
                 text = text[0]
-                token += tokens['total']
+                token += tokens["total"]
                 pre_domain = domain
                 print(domain)
                 domain = extract_pddl(text)
-                trace.append({'error_info': error_info, 'incorrect_domain': pre_domain, 'corrected_domain': domain, 'gpt_response': text, 'prompt': prompt})
+                trace.append(
+                    {
+                        "error_info": error_info,
+                        "incorrect_domain": pre_domain,
+                        "corrected_domain": domain,
+                        "gpt_response": text,
+                        "prompt": prompt,
+                    }
+                )
         # return corrected_env, corrected_env['domain_pddl'] is not None
 
-
     def close_loop_world_generation(self, data):
-        '''
-        data: data is a dictionary contains "description" (mandatory), "unfilled_domain", "example_trajectory" (optional, only under "fillin" setting), 
-        '''
+        """
+        data: data is a dictionary contains "description" (mandatory), "unfilled_domain", "example_trajectory" (optional, only under "fillin" setting),
+        """
         st = time.time()
+        # Step 1: 构造 prompt
         prompt = self._make_domain_generation_prompt(data)
         try:
+            # Step 2: 调用 GPT 生成初始 PDDL domain
             domain, total_token = self._domain_generation(prompt)
             print(domain)
-            success, corrected_env, trace, token = self._domain_correction(domain, self.max_correction)
+            # Step 3: 检查并自动修正 domain
+            success, corrected_env, trace, token = self._domain_correction(
+                domain, self.max_correction
+            )
             total_token += token
-            return success, {'pred_domain': corrected_env, 'correct_trace':trace, 'time': time.time() - st, 'token': total_token}
+            return success, {
+                "pred_domain": corrected_env,
+                "correct_trace": trace,
+                "time": time.time() - st,
+                "token": total_token,
+            }
         except Exception as e:
             return False, None
-
-        

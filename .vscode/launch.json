@@ -1,0 +1,43 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "AgentGen - Environment Specification (src cwd)",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/src/scripts/1_environment_specification.py",
+        "console": "integratedTerminal",
+        "args": [
+          "--context_path", "data/inspiration_corpus/lima_example.json",
+          "--data_path", "data/it0/merged_envs_it0.json",
+          "--output_path", "results/it1/environment_specification.json",
+          "--api_type", "openai",
+          "--model", "gpt-4o",
+          "--n_process", "1"
+        ],
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src"
+        },
+        "cwd": "${workspaceFolder}/src",
+        "justMyCode": true
+      },
+      {
+        "name": "AgentGen-step5",
+        "type": "python",
+        "request": "launch",
+        "program": "${workspaceFolder}/src/scripts/5_generate_gpt_data.py",
+        "console": "integratedTerminal",
+        "args": [
+          "--data_path", "results/it1/generated_domain_wprob.json",
+          "--output_path", "results/it1/evolve_gpt.json",
+          "--solvable_path", "data/it1/solvable_envs.json" 
+        ],
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/src"
+        },
+        "cwd": "${workspaceFolder}/src",
+        "justMyCode": true
+      }
+    ]
+  }
+  
